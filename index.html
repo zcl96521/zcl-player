@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>ZCLreader player</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  #player, iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+  #note { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #aaa; font: 15px -apple-system, system-ui, sans-serif; text-align: center; padding: 16px; }
+</style>
+</head>
+<body>
+<div id="note">Loading…</div>
+<div id="player"></div>
+<script>
+// A small relay for ZCLreader on iPhone and iPad. YouTube's player refuses pages without a web address, as Obsidian's
+// are there; this page has one. It speaks the same messages as YouTube's own embedded player, so ZCLreader can follow
+// and control it. It stores nothing and sends nothing anywhere: the video ID comes after "#", so it never reaches the server.
+(function () {
+  var q = new URLSearchParams(location.hash.slice(1));
+  var id = (q.get("v") || "").replace(/[^A-Za-z0-9_-]/g, "");
+  var start = Math.max(0, parseInt(q.get("start") || "0", 10) || 0);
+  var note = document.getElementById("note");
+  if (!id) { note.textContent = "This page plays YouTube videos inside ZCLreader. Open a video there."; return; }
+  var player = null, ready = false;
+  var ALLOWED = { playVideo: 1, pauseVideo: 1, seekTo: 1, setPlaybackRate: 1, mute: 1, unMute: 1, setVolume: 1 };
+  function tell(message) { if (parent !== window) parent.postMessage(JSON.stringify(message), "*"); }
+  function report() {
+    if (!ready) return;
+    tell({ event: "infoDelivery", info: {
+      currentTime: player.getCurrentTime(), duration: player.getDuration(),
+      playerState: player.getPlayerState(), playbackRate: player.getPlaybackRate()
+    } });
+  }
+  window.addEventListener("message", function (e) {
+    if (e.source !== parent || typeof e.data !== "string") return;
+    var data; try { data = JSON.parse(e.data); } catch (err) { return; }
+    if (data.event === "listening") { report(); return; }
+    if (data.event === "command" && ready && ALLOWED[data.func]) player[data.func].apply(player, data.args || []);
+  });
+  window.onYouTubeIframeAPIReady = function () {
+    note.remove();
+    player = new YT.Player("player", {
+      videoId: id,
+      playerVars: { playsinline: 1, rel: 0, modestbranding: 1, start: start, autoplay: q.get("autoplay") === "1" ? 1 : 0, origin: location.origin },
+      events: {
+        onReady: function () { ready = true; tell({ event: "onReady" }); report(); setInterval(report, 250); },
+        onStateChange: report,
+        onPlaybackRateChange: report,
+        onError: function (e) { tell({ event: "onError", info: e.data }); }
+      }
+    });
+  };
+  var s = document.createElement("script");
+  s.src = "https://www.youtube.com/iframe_api";
+  document.head.appendChild(s);
+})();
+</script>
+</body>
+</html>
